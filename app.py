@@ -87,13 +87,14 @@ def main():
         if hasattr(st.session_state, 'has_data') and st.session_state.has_data:
             st.success("Voice note processed successfully!")
             
+
             # Add manual text size control
             st.subheader("Adjust Text Size")
             text_size_multiplier = st.slider(
                 "Text Size Multiplier", 
                 min_value=0.1, 
-                max_value=2.0, 
-                value=1.0, 
+                max_value=1.0, 
+                value=0.35, 
                 step=0.05,
                 help="Adjust the overall text size",
                 key="text_size_slider"
@@ -125,6 +126,55 @@ def main():
                     del st.session_state.quotes_data
                 st.rerun()
 
+            # Live prompt editor
+            st.subheader("Customize Quote Extraction")
+            
+            # Default prompt
+            default_prompt = """Based on this transcript: "{transcript}"
+
+Please provide a JSON response with:
+1. "quotes": 5 most impactful quotes/sentences/questions from the transcript with importance scores 1-10
+   - Extract actual sentences, questions, key phrases, or action points from the transcript
+   - Choose the most memorable, important, or striking parts
+   - You can remove audio sounds 'like', 'hmmm', 'huu', for clarity but keep the sentence close to the transcript, like a how a quote can be edited in a newspaper
+   - Keep the quote short (< 30 words)
+2. "emojis": 10 most relevant emojis with weights 1-10 (higher weight = more frequent)
+
+Format:
+{{
+    "quotes": [
+        {{"text": "actual quote from transcript", "importance": 9}},
+        {{"text": "key question asked", "importance": 8}},
+        ...
+    ],
+    "emojis": [
+        {{"emoji": "🎵", "weight": 9}},
+        ...
+    ]
+}}
+
+Only respond with valid JSON, no other text."""
+
+            # Live prompt editor
+            custom_prompt = st.text_area(
+                "Edit Prompt (use {transcript} placeholder):",
+                value=default_prompt,
+                height=300,
+                help="Modify the prompt to change how quotes are extracted. Use {transcript} where the transcript should be inserted.",
+                key="custom_prompt"
+            )
+            
+            # Re-extract quotes when prompt changes or button pressed
+            if st.button("Re-extract Quotes with Custom Prompt", type="secondary"):
+                with st.spinner("Re-extracting quotes with custom prompt..."):
+                    st.session_state.quotes_data = extract_quotes_with_custom_prompt(
+                        st.session_state.transcript, 
+                        custom_prompt
+                    )
+            
+            st.subheader("Transcript")
+            st.write(st.session_state.transcript)
+
 def process_voice_note_data(uploaded_file):
     # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
@@ -148,6 +198,9 @@ def process_voice_note_data(uploaded_file):
         transcript = transcription.text
         st.write("**Transcript:**", transcript)
         
+        # Store transcript in session state for later use
+        st.session_state.transcript = transcript
+        
         # Extract quotes and get emojis using Llama 70B
         quotes_data = extract_quotes_and_emojis(transcript)
         
@@ -165,10 +218,11 @@ def extract_quotes_and_emojis(transcript):
     
     Please provide a JSON response with:
     1. "quotes": 5 most impactful quotes/sentences/questions from the transcript with importance scores 1-10
-       - Extract actual sentences, questions, or key phrases from the transcript
-       - Choose the most memorable, important, or striking parts
-       - Remove the words from the audio 'like', 'hmmm', 'huu', etc. but keep the sentence close to the transcript.
-       - Keep the quote short (< 20 words)
+    - Extract actual sentences, questions, key phrases, or action points from the transcript
+    - Choose the most memorable, important, or striking parts
+    - You can remove audio sounds 'like', 'hmmm', 'huu', for clarity but keep the sentence close to the transcript, like a how a quote can be edited in a newspaper but still really needs to stay faithful to what the person says
+    - Keep the quote short, but this can be a full sentence (< 30 words)
+    - For the first quote, add a sort of title for the whole voice note
     2. "emojis": 10 most relevant emojis with weights 1-10 (higher weight = more frequent)
     
     Format:
@@ -216,6 +270,46 @@ def extract_quotes_and_emojis(transcript):
         st.error(f"Error parsing quotes/emojis: {e}")
         # Fallback data
         return {
+            "quotes": [{"text": "voice note", "importance": 5}],
+            "emojis": [{"emoji": "🎤", "weight": 5}]
+        }
+
+def extract_quotes_with_custom_prompt(transcript, custom_prompt):
+    """Extract quotes using a custom user-provided prompt"""
+    st.info("Re-extracting quotes with custom prompt...")
+    
+    # Format the custom prompt with the transcript
+    formatted_prompt = custom_prompt.format(transcript=transcript)
+    
+    try:
+        response = completion(
+            model="groq/llama-3.3-70b-versatile",
+            messages=[{
+                "role": "user", 
+                "content": formatted_prompt
+            }],
+            max_tokens=1000,
+            temperature=0.3
+        )
+        
+        # Extract JSON from response
+        json_text = response.choices[0].message.content
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0]
+        elif "```" in json_text:
+            json_text = json_text.split("```")[1].split("```")[0]
+        
+        data = json.loads(json_text.strip())
+        
+        st.write("**Updated Quotes:**", [f"'{k['text']}' ({k['importance']})" for k in data['quotes']])
+        st.write("**Updated Emojis:**", [f"{e['emoji']} ({e['weight']})" for e in data['emojis']])
+        
+        return data
+        
+    except Exception as e:
+        st.error(f"Error with custom prompt: {e}")
+        # Return existing data if custom prompt fails
+        return st.session_state.quotes_data if hasattr(st.session_state, 'quotes_data') else {
             "quotes": [{"text": "voice note", "importance": 5}],
             "emojis": [{"emoji": "🎤", "weight": 5}]
         }
@@ -407,7 +501,6 @@ def add_text_overlay(img, size, quotes, text_size_multiplier=1.0):
             font = ImageFont.load_default()
         
         # Show debug info in Streamlit
-        st.write(f"Processing quote: '{text}' with font size: {font_size}px")
         
         # Wrap text if needed
         lines = wrap_text(text, font, max_text_width)
