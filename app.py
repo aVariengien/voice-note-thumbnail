@@ -134,10 +134,11 @@ def main():
 
 Please provide a JSON response with:
 1. "quotes": 5 most impactful quotes/sentences/questions from the transcript with importance scores 1-10
-   - Extract actual sentences, questions, key phrases, or action points from the transcript
-   - Choose the most memorable, important, or striking parts
-   - You can remove audio sounds 'like', 'hmmm', 'huu', for clarity but keep the sentence close to the transcript, like a how a quote can be edited in a newspaper
-   - Keep the quote short (< 30 words)
+- Extract actual sentences, questions, key phrases, or action points from the transcript
+- Choose the most memorable, important, or striking parts
+- You can remove audio sounds 'like', 'hmmm', 'huu', for clarity but keep the sentence close to the transcript, like a how a quote can be edited in a newspaper but still really needs to stay faithful to what the person says
+- Keep the quote short, but this can be a full sentence (< 30 words)
+- For the first quote, add a sort of title for the whole voice note
 2. "emojis": 10 most relevant emojis with weights 1-10 (higher weight = more frequent)
 
 Format:
